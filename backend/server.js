@@ -206,11 +206,23 @@ app.listen(PORT, () => {
 // ════════════════════════════════════════════════════════════════════════════
 // DISHA AI AGENT — 4651 schemes from myscheme.gov.in
 // ════════════════════════════════════════════════════════════════════════════
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
+
+// ── Serve frontend static files on same port ──────────────
+const frontendDist = join(__dir, "../frontend/dist");
+if (existsSync(frontendDist)) {
+  app.use(express.static(frontendDist));
+  app.get("*", (req, res) => {
+    if (!req.path.startsWith("/api")) {
+      res.sendFile(join(frontendDist, "index.html"));
+    }
+  });
+  console.log(`📦 Serving frontend from ${frontendDist}`);
+}
 const FULL_SCHEMES = JSON.parse(
   readFileSync(join(__dir, "data/schemes_full.json"), "utf-8")
 );
