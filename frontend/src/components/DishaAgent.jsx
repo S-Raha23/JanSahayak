@@ -327,23 +327,27 @@ export default function DishaAgent({ lang }) {
       const reader  = res.body.getReader();
       const decoder = new TextDecoder();
       let full = "";
+      let finished = false;
 
-      while (true) {
+      while (!finished) {
         const { done, value } = await reader.read();
         if (done) break;
         for (const line of decoder.decode(value).split("\n")) {
           if (!line.startsWith("data: ")) continue;
           const data = line.slice(6).trim();
-          if (data === "[DONE]") break;
+          if (data === "[DONE]") { finished = true; break; }
           try {
             const p = JSON.parse(data);
+            if (p.error) throw new Error(p.error);
             if (p.text) { full += p.text; setChatStream(full); }
-          } catch { /* ignore */ }
+          } catch(e) {
+            if (e.message !== "Unexpected end of JSON input") throw e;
+          }
         }
       }
 
       setChatStream("");
-      setChatMsgs(prev => [...prev, { role:"assistant", content: full, id: uid() }]);
+      setChatMsgs(prev => [...prev, { role:"assistant", content: full || "Sorry, I couldn't get a response. Please try again.", id: uid() }]);
       setAvatarState("idle");
     } catch(err) {
       setChatMsgs(prev => [...prev, { role:"assistant", content:`⚠️ ${err.message}`, id: uid() }]);

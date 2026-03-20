@@ -14,47 +14,28 @@ app.use(express.json({ limit: "20mb" }));
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
-// ── Build scheme context for the system prompt ─────────────────────────────
-const SCHEME_CONTEXT = SCHEMES.map(s =>
-  `[${s.id}] ${s.name} (${s.fullName})
-  Type: ${s.type} | Category: ${s.category} | Ministry: ${s.ministry}
-  Benefit: ${s.benefit}
-  States: ${s.states.join(", ")}
-  Tags: ${s.tags.join(", ")}
-  Apply: ${s.applyUrl}
-  Documents: ${s.documents.join(", ")}`
-).join("\n\n");
+// ── Minimal scheme index — name + benefit + url + docs only (saves ~70% tokens) ──
+const SCHEME_INDEX = SCHEMES.map(s =>
+  `${s.name}|${s.benefit}|${s.applyUrl}|${s.documents.slice(0,3).join(",")}|${s.tags.slice(0,4).join(",")}|${s.states.includes("all")?"all":s.states.slice(0,3).join(",")}`
+).join("\n");
 
-// ── System prompt ──────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are JanSahayak, an AI welfare guide for Indian citizens.
+// ── System prompt — human, crisp, token-efficient ────────────────────────
+const SYSTEM_PROMPT = `You are JanSahayak, a friendly welfare guide helping Indian citizens find government schemes.
 
-SCHEMES DATABASE (${SCHEMES.length} schemes):
-${SCHEME_CONTEXT}
+SCHEMES (name|benefit|applyUrl|top3docs|tags|states):
+${SCHEME_INDEX}
 
-## RULES — READ CAREFULLY:
-
-**BREVITY IS MANDATORY.**
-- Max 3 schemes per response unless user asks for more
-- Each scheme: 2–3 lines max. Name + benefit + apply link. That's it.
-- No long explanations. No paragraphs. No fluff.
-- If user asks for documents: numbered list only, no extra text
-- Never repeat information already given
-
-**FORMAT** (strict):
-**Scheme Name** — ✅ benefit in one line
-📋 Docs: doc1, doc2, doc3
-🔗 apply-url
-
-**LANGUAGE:**
-- Hindi input → Hindi output (Devanagari, simple words)
-- English input → English output
-- Hinglish → Hindi
-
-**BEHAVIOUR:**
-- If profile is incomplete, ask ONE question only (state OR occupation, not both)
-- Only recommend schemes from the database — never invent schemes
-- End with one short follow-up question max
-- If user just says hi/hello → ask their state and occupation in one line`;
+HOW TO RESPOND:
+- Talk like a knowledgeable friend, not a government form
+- Match the user's language: Hindi in → Hindi out, English in → English out
+- Show 2-3 most relevant schemes. Never more unless asked.
+- For each scheme: one line on what they get, one line on how to apply. That's enough.
+- If you need their state or occupation to help better, just ask naturally — one question
+- For documents, give a clean short list. Nothing else.
+- Don't start with "Sure!", "Great!", or any filler. Just answer.
+- Don't repeat what the user said back to them.
+- End with one short natural question to help them further — only if it makes sense.
+- Only recommend schemes from the list above.`;
 
 // ── /api/chat — streaming endpoint ─────────────────────────────────────────
 app.post("/api/chat", async (req, res) => {
@@ -74,10 +55,14 @@ app.post("/api/chat", async (req, res) => {
     });
 
     // Convert messages to Gemini format
-    const history = messages.slice(0, -1).map(m => ({
+    // Gemini requires history to start with "user" — strip leading model turns
+    const rawHistory = messages.slice(0, -1).map(m => ({
       role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.content }],
     }));
+    let hi = 0;
+    while (hi < rawHistory.length && rawHistory[hi].role === "model") hi++;
+    const history = rawHistory.slice(hi);
 
     const lastMsg = messages[messages.length - 1];
     const chat = model.startChat({ history });
@@ -414,10 +399,18 @@ Rules:
 - Be warm, encouraging, empowering`;
 
     const model = genAI.getGenerativeModel({ model:"gemini-2.5-flash", systemInstruction: sys });
-    const history = (messages||[]).slice(0,-1).map(m => ({
+
+    // Gemini requires history to start with role "user" — filter out any
+    // leading assistant/model messages (e.g. Disha's greeting)
+    const rawHistory = (messages||[]).slice(0,-1).map(m => ({
       role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.content }],
     }));
+    // Drop leading model turns — Gemini will error otherwise
+    let startIdx = 0;
+    while (startIdx < rawHistory.length && rawHistory[startIdx].role === "model") startIdx++;
+    const history = rawHistory.slice(startIdx);
+
     const lastMsg = messages[messages.length-1];
     const chat = model.startChat({ history });
     const result = await chat.sendMessageStream(lastMsg.content);

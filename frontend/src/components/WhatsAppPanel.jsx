@@ -153,7 +153,7 @@ export default function WhatsAppPanel({ lang }) {
         <div className="wa-tech-stack">
           <div className="wa-stack-title">Tech Stack</div>
           <div className="wa-stack-tags">
-            {["Gemini 1.5 Flash","Amazon Lex v2","AWS Lambda","API Gateway","Amazon Translate","Node.js"].map(t => (
+            {["Amazon Bedrock","Amazon Lex v2","AWS Lambda","API Gateway","Amazon Translate","Node.js"].map(t => (
               <span key={t} className="wa-stack-tag">{t}</span>
             ))}
           </div>
